@@ -73,6 +73,10 @@ test("Codex provider window costs use the weekly reset window and API key USD li
     message: null,
     fetchedAt: "2026-06-28T12:00:00.000Z",
   });
+  core
+    .getDbInstance()
+    .prepare("INSERT INTO key_value (namespace, key, value) VALUES (?, ?, ?)")
+    .run("seat_monthly_cost", "codex-conn", JSON.stringify({ monthly_usd: 94, weekly_usd: 21.61 }));
 
   await usageHistory.saveRequestUsage({
     provider: "codex",
@@ -105,6 +109,9 @@ test("Codex provider window costs use the weekly reset window and API key USD li
   assert.equal(result.quotaUsedPercent, 13);
   assert.equal(result.totalCostUsd, 10);
   assert.equal(result.estimatedFullQuotaUsd, 76.923077);
+  assert.equal(result.monthlySubscriptionCostUsd, 94);
+  assert.equal(result.weeklySubscriptionCostUsd, 21.61);
+  assert.equal(result.subscriptionCostSource, "seat_monthly_cost");
   assert.equal(result.rows.length, 1);
   assert.equal(result.rows[0].apiKeyName, "Codex Key");
   assert.equal(result.rows[0].costUsd, 10);

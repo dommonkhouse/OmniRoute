@@ -15,6 +15,8 @@ import { calculateCost } from "@/lib/usage/costCalculator";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const RECORDED_COST_MATCH_TOLERANCE_MS = 30_000;
+const SEAT_MONTHLY_COST_NAMESPACE = "seat_monthly_cost";
+const WEEKLY_COST_DIVISOR = 4.35;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -113,6 +115,9 @@ export interface ProviderWindowCostBreakdown {
   quotaRemainingPercent: number | null;
   totalCostUsd: number;
   estimatedFullQuotaUsd: number | null;
+  monthlySubscriptionCostUsd: number | null;
+  weeklySubscriptionCostUsd: number | null;
+  subscriptionCostSource: "seat_monthly_cost" | null;
   rows: ProviderWindowCostBreakdownRow[];
 }
 
@@ -139,6 +144,36 @@ function roundUsd(value: number): number {
 
 function roundPercent(value: number): number {
   return Math.round(value * 10) / 10;
+}
+
+function roundSeatUsd(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function getSeatSubscriptionCosts(
+  connectionId: string | null
+): { monthlyUsd: number; weeklyUsd: number } | null {
+  if (!connectionId) return null;
+  try {
+    const row = getDbInstance()
+      .prepare("SELECT value FROM key_value WHERE namespace = ? AND key = ?")
+      .get(SEAT_MONTHLY_COST_NAMESPACE, connectionId) as { value?: unknown } | undefined;
+    if (!row || typeof row.value !== "string") return null;
+    const parsed = JSON.parse(row.value) as {
+      monthly_usd?: unknown;
+      weekly_usd?: unknown;
+    };
+    const monthly = toNumber(parsed.monthly_usd, Number.NaN);
+    if (!Number.isFinite(monthly) || monthly < 0) return null;
+    const storedWeekly = toNumber(parsed.weekly_usd, Number.NaN);
+    const weekly =
+      Number.isFinite(storedWeekly) && storedWeekly >= 0
+        ? roundSeatUsd(storedWeekly)
+        : roundSeatUsd(monthly / WEEKLY_COST_DIVISOR);
+    return { monthlyUsd: roundSeatUsd(monthly), weeklyUsd: weekly };
+  } catch {
+    return null;
+  }
 }
 
 function parseResetAt(value: unknown, nowMs: number): number | null {
@@ -792,6 +827,9 @@ export async function getProviderWindowCostBreakdown({
     totalCostUsd > 0 && window.quotaUsedPercent && window.quotaUsedPercent > 0
       ? roundUsd(totalCostUsd / (window.quotaUsedPercent / 100))
       : null;
+  const seatCosts = getSeatSubscriptionCosts(connectionId);
+  const monthlySubscriptionCostUsd = seatCosts?.monthlyUsd ?? null;
+  const weeklySubscriptionCostUsd = seatCosts?.weeklyUsd ?? null;
 
   return {
     provider: providerKey,
@@ -807,6 +845,9 @@ export async function getProviderWindowCostBreakdown({
       window.quotaRemainingPercent === null ? null : roundPercent(window.quotaRemainingPercent),
     totalCostUsd,
     estimatedFullQuotaUsd,
+    monthlySubscriptionCostUsd,
+    weeklySubscriptionCostUsd,
+    subscriptionCostSource: monthlySubscriptionCostUsd === null ? null : "seat_monthly_cost",
     rows: breakdownRows,
   };
 }

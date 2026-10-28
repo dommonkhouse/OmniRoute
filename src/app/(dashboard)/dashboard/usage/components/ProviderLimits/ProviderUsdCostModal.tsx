@@ -33,6 +33,9 @@ interface ProviderWindowCostPayload {
   quotaRemainingPercent: number | null;
   totalCostUsd: number;
   estimatedFullQuotaUsd: number | null;
+  monthlySubscriptionCostUsd: number | null;
+  weeklySubscriptionCostUsd: number | null;
+  subscriptionCostSource: "seat_monthly_cost" | null;
   rows: ProviderWindowCostRow[];
 }
 
@@ -180,6 +183,26 @@ export default function ProviderUsdCostModal({
                     {formatUsd(payload.totalCostUsd)}
                   </div>
                 </div>
+                {payload.subscriptionCostSource === "seat_monthly_cost" ? (
+                  <>
+                    <div className="rounded-md border border-border bg-bg-subtle px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-text-muted">
+                        {t("monthlySubscriptionCost")}
+                      </div>
+                      <div className="mt-1 text-lg font-semibold tabular-nums text-text-main">
+                        {formatUsd(payload.monthlySubscriptionCostUsd)}
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-border bg-bg-subtle px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-text-muted">
+                        {t("weeklySubscriptionCost")}
+                      </div>
+                      <div className="mt-1 text-lg font-semibold tabular-nums text-text-main">
+                        {formatUsd(payload.weeklySubscriptionCostUsd)}
+                      </div>
+                    </div>
+                  </>
+                ) : null}
                 <div className="rounded-md border border-border bg-bg-subtle px-3 py-2">
                   <div className="text-[10px] uppercase tracking-wide text-text-muted">
                     {t("quotaUsed")}

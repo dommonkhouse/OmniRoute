@@ -13364,6 +13364,8 @@
     "close": "Close",
     "loadingUsdCosts": "Loading USD costs",
     "used": "Used",
+    "monthlySubscriptionCost": "Monthly subscription",
+    "weeklySubscriptionCost": "Weekly subscription",
     "quotaUsed": "Quota used",
     "estimatedFullQuota": "Est. 100%",
     "rows": "Rows",
