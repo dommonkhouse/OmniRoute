@@ -134,6 +134,20 @@ export const claudeProvider: RegistryEntry = {
       unsupportedParams: ["temperature", "top_p", "top_k"],
     },
     {
+      id: "claude-haiku-5-5",
+      name: "Claude Haiku 5.5",
+      contextLength: 1000000,
+      maxOutputTokens: 128000,
+      supportsReasoning: true,
+      // Haiku 5.5 is effort-steered (adaptive thinking; modelSpecs marks it
+      // adaptiveThinkingOnly). Vendor tiers are low..xhigh; max is not offered
+      // for Haiku. Listing the tiers lets `<base>-{effort}` catalog variants
+      // pass the live-catalog gate; the base id stays the upstream wire model.
+      supportedThinkingEfforts: ["low", "medium", "high", "xhigh"],
+      supportsXHighEffort: true,
+      supportsVision: true,
+    },
+    {
       id: "claude-sonnet-4-6",
       name: "Claude Sonnet 4.6",
       supportsXHighEffort: false,
