@@ -75,6 +75,28 @@ test.after(() => {
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
+test("#1101: advertised Sonnet 5.5 low tier resolves when its live base is present", async () => {
+  await seedProviderCatalog("claude", "claude-sonnet-5-5-live-1101", ["claude-sonnet-5-5"]);
+
+  const claudeCatalog = await getActiveSyncedCatalog("claude");
+  assert.equal(
+    claudeCatalog.authoritative,
+    true,
+    "precondition: the seeded claude catalog must be authoritative, or the pass is vacuous"
+  );
+  assert.deepEqual(
+    claudeCatalog.models.map((model) => model.id),
+    ["claude-sonnet-5-5"],
+    "precondition: only the base model is synced — the -low tier must resolve via registry efforts"
+  );
+
+  const resolved = await getModelInfo("cc/claude-sonnet-5-5-low");
+
+  assert.equal(resolved.provider, "claude");
+  assert.equal(resolved.model, "claude-sonnet-5-5");
+  assert.equal(resolved.resolvedThinkingEffort, "low");
+});
+
 test("#8926: bare inference excludes a stale static model absent from the active live catalog", async () => {
   const resolved = await getModelInfo(PHANTOM_MODEL);
 
