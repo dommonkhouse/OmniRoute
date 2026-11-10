@@ -30,7 +30,11 @@ import {
   normalizeClaudeDisabledThinkingEffort,
 } from "../../services/claudeAdaptiveThinking.ts";
 import { normalizeClaudeHaikuConstraints } from "../../services/claudeHaikuConstraints.ts";
-import { applyDefaultReasoningEffort } from "../../services/defaultReasoningEffort.ts";
+import {
+  applyDefaultReasoningEffort,
+  applyResolvedSuffixClaudeEffort,
+  applyResolvedSuffixGeminiLevel,
+} from "../../services/defaultReasoningEffort.ts";
 import { normalizeMimoThinking } from "../../services/mimoThinking.ts";
 import {
   isOpencodeGoProvider,
@@ -355,6 +359,25 @@ type PrepareUpstreamBodyOptions = {
   log?: LoggerLike;
 };
 
+/** True when the client body expresses a reasoning-effort choice in any known shape. */
+function clientSuppliesReasoningShape(rawBody: unknown): boolean {
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) return false;
+  const body = rawBody as Record<string, unknown>;
+  const generationConfig = body.generationConfig as Record<string, unknown> | undefined;
+  return (
+    body.reasoning_effort !== undefined ||
+    body.reasoning !== undefined ||
+    body.thinking !== undefined ||
+    body.effort !== undefined ||
+    body.reasoningEffort !== undefined ||
+    body.thinking_level !== undefined ||
+    body.thinkingLevel !== undefined ||
+    (body.output_config as Record<string, unknown> | undefined)?.effort !== undefined ||
+    generationConfig?.thinkingConfig !== undefined ||
+    generationConfig?.thinkingBudget !== undefined
+  );
+}
+
 function normalizeAttemptBody(opts: PrepareUpstreamBodyOptions): Body {
   const { translatedBody, modelToCall, provider, targetFormat, log } = opts;
   // Capture intent before constraints remove unsupported fields. Removed explicit
@@ -390,6 +413,25 @@ function normalizeAttemptBody(opts: PrepareUpstreamBodyOptions): Body {
       isOriginModel ? opts.resolvedThinkingEffort : undefined,
       isOriginModel ? opts.defaultThinkingEffort : undefined
     );
+  }
+  // A catalog-resolved `<base>-{effort}` variant must also steer non-OpenAI targets:
+  // applyDefaultReasoningEffort only runs for FORMATS.OPENAI, so suffixed Claude and
+  // Gemini targets would otherwise lose their tier at translate time. Per attempt,
+  // with the same origin-model guard, so a lifecycle, background or family-fallback
+  // replacement model drops the tier exactly like the OpenAI path. Any explicit
+  // effort the client supplied in any shape means the translator already carried it
+  // and this stays a no-op. The Gemini translator default-injects a thinking level
+  // when the client sent none, so that default is safe to replace here.
+  if (
+    opts.resolvedThinkingEffort &&
+    modelToCall === opts.originModel &&
+    !clientSuppliesReasoningShape(opts.rawBody)
+  ) {
+    if (targetFormat === FORMATS.GEMINI) {
+      bodyToSend = applyResolvedSuffixGeminiLevel(bodyToSend, opts.resolvedThinkingEffort);
+    } else if (targetFormat === FORMATS.CLAUDE && !hadExplicitReasoning) {
+      bodyToSend = applyResolvedSuffixClaudeEffort(bodyToSend, opts.resolvedThinkingEffort);
+    }
   }
   // #13448: resolve an "auto" effort (X-OmniRoute-Effort header or ModelSpec default) to a
   // concrete level. Runs per attempt, right after applyDefaultReasoningEffort — the same

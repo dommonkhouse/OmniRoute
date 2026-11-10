@@ -23,6 +23,11 @@ export const geminiProvider: RegistryEntry = {
       name: "Gemini 3.8 Flash",
       toolCalling: true,
       supportsVision: true,
+      supportsReasoning: true,
+      // Gemini 3.x steers thinking via thinkingConfig.thinkingLevel (low|medium|high).
+      // Declaring the tiers admits `<base>-{effort}` variants through the live-catalog
+      // gate; the suffix is pinned before translation so the wire body carries the tier.
+      supportedThinkingEfforts: ["low", "medium", "high"],
     },
     {
       id: "gemini-4-argon",

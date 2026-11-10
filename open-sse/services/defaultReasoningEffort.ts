@@ -24,6 +24,46 @@ function hasExplicitReasoningField(body: Record<string, unknown>): boolean {
 }
 
 /**
+ * Pin a catalog-resolved `<base>-{effort}` variant onto an already-translated Claude
+ * body as `output_config.effort`. Called per attempt by prepareUpstreamBody with the
+ * same origin-model guard as applyDefaultReasoningEffort, so a replaced model drops
+ * the tier. An explicit `output_config.effort` (client choice, translated) is never
+ * overwritten.
+ */
+export function applyResolvedSuffixClaudeEffort<T extends Record<string, unknown>>(
+  body: T,
+  effort: string
+): T {
+  const outputConfig = (body.output_config ?? {}) as Record<string, unknown>;
+  if (outputConfig.effort !== undefined) return body;
+  return { ...body, output_config: { ...outputConfig, effort } };
+}
+
+/**
+ * Pin a catalog-resolved `<base>-{effort}` variant onto an already-translated Gemini
+ * body as `generationConfig.thinkingConfig.thinkingLevel`. The translator
+ * default-injects a thinking level when the client sent none, so this replaces that
+ * default; an explicit client level never reaches here (the caller skips when the
+ * client body carries any reasoning shape). A numeric thinkingBudget is dropped —
+ * the level makes it redundant per Google's 3.x migration guidance.
+ */
+export function applyResolvedSuffixGeminiLevel<T extends Record<string, unknown>>(
+  body: T,
+  level: string
+): T {
+  const generationConfig = (body.generationConfig ?? {}) as Record<string, unknown>;
+  const thinkingConfig = {
+    ...((generationConfig.thinkingConfig as Record<string, unknown> | undefined) ?? {}),
+  };
+  delete thinkingConfig.thinkingBudget;
+  thinkingConfig.thinkingLevel = level;
+  return {
+    ...body,
+    generationConfig: { ...generationConfig, thinkingConfig },
+  };
+}
+
+/**
  * Inject a resolved reasoning effort as `reasoning_effort` when the request has no
  * reasoning field. Returns `body` unchanged (same reference) when there is nothing to
  * inject, so callers can chain it without extra guards.
