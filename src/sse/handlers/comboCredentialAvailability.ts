@@ -10,6 +10,22 @@ export function getComboCredentialAvailability(
   }
   if (!("allRateLimited" in credentials) || !credentials.allRateLimited) return true;
 
+  // Auth marks quota-shaped exhaustion explicitly: this must reach the combo
+  // layer as quota so a protected fallback can treat it as quota exhaustion,
+  // while plain rate-limit cooldowns stay non-quota.
+  if ("quotaExhausted" in credentials && credentials.quotaExhausted === true) {
+    const quotaResetAt =
+      "retryAfter" in credentials && typeof credentials.retryAfter === "string"
+        ? Date.parse(credentials.retryAfter)
+        : NaN;
+    const quotaRetryAfterMs = quotaResetAt - now;
+    return {
+      available: false,
+      reason: "quota_exhausted",
+      retryAfterMs: Number.isFinite(quotaRetryAfterMs) && quotaRetryAfterMs > 0 ? quotaRetryAfterMs : 0,
+    };
+  }
+
   // Auth returns an ISO deadline, not Retry-After header seconds. Missing,
   // malformed or expired hints must not fabricate a new cooldown deadline.
   const resetAt =

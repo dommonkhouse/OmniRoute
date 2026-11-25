@@ -59,3 +59,36 @@ test("healthy credentials remain available and legacy availability reasons remai
   assert.equal(modelAvailabilitySkipReason(false), "availability");
   assert.equal(modelAvailabilitySkipReason("model_not_in_catalog"), "model_not_in_catalog");
 });
+
+test("quota-exhausted credentials map to the quota_exhausted availability shape", () => {
+  const result = getComboCredentialAvailability(
+    { allRateLimited: true, quotaExhausted: true, retryAfter: FUTURE },
+    NOW
+  );
+  assert.deepEqual(result, { available: false, reason: "quota_exhausted", retryAfterMs: 5000 });
+  assert.equal(modelAvailabilitySkipReason(result), "quota_exhausted");
+});
+
+test("quota flag with malformed retry hints still classifies as quota with zero retry", () => {
+  for (const retryAfter of [undefined, null, "invalid", ""]) {
+    const result = getComboCredentialAvailability(
+      { allRateLimited: true, quotaExhausted: true, retryAfter },
+      NOW
+    );
+    assert.deepEqual(result, { available: false, reason: "quota_exhausted", retryAfterMs: 0 });
+  }
+});
+
+test("quotaExhausted false or absent keeps the legacy cooldown mapping", () => {
+  assert.deepEqual(
+    getComboCredentialAvailability(
+      { allRateLimited: true, quotaExhausted: false, retryAfter: FUTURE },
+      NOW
+    ),
+    { available: false, reason: "connection_cooldown", retryAfterMs: 5000 }
+  );
+  assert.deepEqual(
+    getComboCredentialAvailability({ allRateLimited: true, retryAfter: FUTURE }, NOW),
+    { available: false, reason: "connection_cooldown", retryAfterMs: 5000 }
+  );
+});

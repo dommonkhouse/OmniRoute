@@ -85,7 +85,8 @@ export type HandleSingleModel = (
 export type ModelAvailabilityResult =
   | boolean
   | "model_not_in_catalog"
-  | { available: false; reason: "connection_cooldown"; retryAfterMs: number };
+  | { available: false; reason: "connection_cooldown"; retryAfterMs: number }
+  | { available: false; reason: "quota_exhausted"; retryAfterMs: number };
 
 export type IsModelAvailable = (
   modelStr: string,
@@ -95,9 +96,18 @@ export type IsModelAvailable = (
 /** `null` when the target may be dispatched. */
 export function modelAvailabilitySkipReason(
   result: ModelAvailabilityResult
-): "availability" | "model_not_in_catalog" | null {
+): "availability" | "model_not_in_catalog" | "quota_exhausted" | null {
   if (result === true) return null;
-  return result === "model_not_in_catalog" ? "model_not_in_catalog" : "availability";
+  if (result === "model_not_in_catalog") return "model_not_in_catalog";
+  if (
+    typeof result === "object" &&
+    result !== null &&
+    "reason" in result &&
+    result.reason === "quota_exhausted"
+  ) {
+    return "quota_exhausted";
+  }
+  return "availability";
 }
 
 export type ComboRelayOptions = {

@@ -496,6 +496,12 @@ export async function handleRoundRobinCombo({
   // abandoning it *is* the first fallback.
   let fallbackCount = 0;
   let recordedAttempts = 0;
+  // Quota-skip classification: how many targets were skipped pre-dispatch with an
+  // explicit quota_exhausted availability result. When this equals the whole
+  // filtered pool at the ALL_TARGETS_SKIPPED return, every member was skipped for
+  // quota — the response carries a terminal quota code so a protected parent
+  // (fallbackOnlyOnQuotaExhaustion combo-ref) treats it as quota exhaustion.
+  let quotaExhaustedSkips = 0;
   // #10314: per-target outcome accumulator for the round-robin twin so the
   // terminal message lists each distinct reason separately (see the quality path
   // and the "Done with this model" path below), mirroring handleComboChat.
@@ -651,6 +657,14 @@ export async function handleRoundRobinCombo({
       if (isModelAvailable) {
         const available = await isModelAvailable(modelStr, targetForAttempt);
         if (available !== true) {
+          if (
+            typeof available === "object" &&
+            available !== null &&
+            "reason" in available &&
+            available.reason === "quota_exhausted"
+          ) {
+            quotaExhaustedSkips++;
+          }
           log.debug?.(
             "COMBO-RR",
             `Skipping ${modelStr} — no credentials available or model excluded`
@@ -1488,6 +1502,26 @@ export async function handleRoundRobinCombo({
     if (recordedAttempts === 0) {
       const quotaExcluded = collectQuotaWindowExclusions(filteredTargets);
       const quotaSkip = formatQuotaSkipMessage(quotaExcluded);
+      // Every member was skipped pre-dispatch with an explicit quota_exhausted
+      // availability result: answer 429 with a terminal quota code so the
+      // caller (and any protected parent combo) reads this as quota exhaustion,
+      // not a generic outage. Mixed or non-quota skips keep the legacy 503.
+      if (filteredTargets.length > 0 && quotaExhaustedSkips >= filteredTargets.length) {
+        return errorResponseWithComboDiagnostics(
+          429,
+          quotaSkip
+            ? `All targets skipped: every account is out of quota (${quotaSkip})`
+            : "All targets skipped: every account is out of quota",
+          {
+            poolSize: filteredTargets.length,
+            attempted: 0,
+            excluded: quotaExcluded,
+            attemptOrder: [],
+            terminalReason: "all_targets_skipped",
+          },
+          { code: "quota_exhausted", type: "rate_limit_error" }
+        );
+      }
       return errorResponseWithComboDiagnostics(
         503,
         quotaSkip

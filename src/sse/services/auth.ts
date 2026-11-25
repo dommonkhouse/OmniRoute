@@ -772,6 +772,7 @@ function buildQuotaPreflightRateLimitedResult(
 
   return {
     allRateLimited: true,
+    quotaExhausted: true,
     retryAfter,
     retryAfterHuman: formatRetryAfter(retryAfter),
     lastError: `All ${provider} accounts blocked by quota preflight`,
@@ -1784,6 +1785,7 @@ export async function getProviderCredentials(
       invalidateManagedLease(options, "QUOTA_UNAVAILABLE");
       return {
         allRateLimited: true,
+        quotaExhausted: true,
         retryAfter,
         retryAfterHuman: formatRetryAfter(retryAfter),
         lastError: `All ${provider} accounts reached configured quota threshold`,
@@ -1877,6 +1879,7 @@ export async function getProviderCredentials(
       invalidateManagedLease(options, "QUOTA_UNAVAILABLE");
       return {
         allRateLimited: true,
+        quotaExhausted: true,
         retryAfter,
         retryAfterHuman: formatRetryAfter(retryAfter),
         lastError: `All ${provider} accounts have exhausted their quota (cached quota state, no upstream attempt; earliest ${formatRetryAfter(retryAfter)})`,
