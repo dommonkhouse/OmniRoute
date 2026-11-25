@@ -190,6 +190,19 @@ for (const lane of Object.keys(LANES) as Array<keyof typeof LANES>) {
     assert.equal(r.result.status, 503);
   });
 
+  test(`${lane} (h): one unavailable member plus quota replies -> DeepSeek never called`, async () => {
+    const { members, deepseek } = LANES[lane];
+    const unavailable = members[0];
+    const r = await run(
+      lane,
+      (model) => model === deepseek ? ok() : quota429(),
+      (model) => model !== unavailable
+    );
+    assert.deepEqual(r.calls, r.calls.filter((model) => model !== deepseek));
+    assert.deepEqual([...r.calls].sort(), [...members.slice(1)].sort());
+    assert.equal(r.result.ok, false);
+  });
+
   test(`${lane} (g): mixed quota_exhausted and plain-false skips -> DeepSeek never called`, async () => {
     const r = await run(
       lane,

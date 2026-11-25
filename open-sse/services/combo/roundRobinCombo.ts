@@ -157,6 +157,7 @@ import { resolveComboDailyReset } from "./comboDailyResetClock.ts";
 import { resolveTargetTokenLimit } from "./targetTokenLimit.ts";
 import { isProviderProbeResponse } from "../../../src/shared/utils/providerProbeResult.ts";
 import { recordLocalCircuitRefusal } from "./localCircuitRefusal.ts";
+import { isQuotaExhaustionResponse, withQuotaExhaustionClassification } from "./quotaExhaustion.ts";
 
 /**
  * Handle round-robin combo: each request goes to the next model in circular order.
@@ -496,12 +497,15 @@ export async function handleRoundRobinCombo({
   // abandoning it *is* the first fallback.
   let fallbackCount = 0;
   let recordedAttempts = 0;
-  // Quota-skip classification: how many targets were skipped pre-dispatch with an
-  // explicit quota_exhausted availability result. When this equals the whole
-  // filtered pool at the ALL_TARGETS_SKIPPED return, every member was skipped for
-  // quota — the response carries a terminal quota code so a protected parent
-  // (fallbackOnlyOnQuotaExhaustion combo-ref) treats it as quota exhaustion.
-  let quotaExhaustedSkips = 0;
+  // A protected parent needs evidence for every target, not just the last reply.
+  const quotaEvidence = new Map<number, boolean>();
+  const observeQuota = (index: number, exhausted: boolean) => {
+    quotaEvidence.set(index, (quotaEvidence.get(index) ?? true) && exhausted);
+  };
+  const allTargetsOutOfQuota = () =>
+    compatRejectedTargets.length === 0 &&
+    filteredTargets.length > 0 &&
+    filteredTargets.every((_, index) => quotaEvidence.get(index) === true);
   // #10314: per-target outcome accumulator for the round-robin twin so the
   // terminal message lists each distinct reason separately (see the quality path
   // and the "Done with this model" path below), mirroring handleComboChat.
@@ -657,14 +661,7 @@ export async function handleRoundRobinCombo({
       if (isModelAvailable) {
         const available = await isModelAvailable(modelStr, targetForAttempt);
         if (available !== true) {
-          if (
-            typeof available === "object" &&
-            available !== null &&
-            "reason" in available &&
-            available.reason === "quota_exhausted"
-          ) {
-            quotaExhaustedSkips++;
-          }
+          observeQuota(modelIndex, typeof available === "object" && available?.reason === "quota_exhausted");
           log.debug?.(
             "COMBO-RR",
             `Skipping ${modelStr} — no credentials available or model excluded`
@@ -873,6 +870,8 @@ export async function handleRoundRobinCombo({
             return errorResponse(499, "Client disconnected");
           }
           if (rrExpired) return result; // G4: safety timer won — stop everything
+
+          observeQuota(modelIndex, !result.ok && await isQuotaExhaustionResponse(result, provider, modelStr, profile));
 
           // Quota-aware scheduling: reserve the estimated budget for this
           // dispatch (opt-in, same env gate as the pre-request check). Best-effort
@@ -1478,7 +1477,7 @@ export async function handleRoundRobinCombo({
       strategy: "round-robin",
     });
     if (compatFallbackResult) {
-      if (!compatFallbackResult.ok) return compatFallbackResult;
+      if (!compatFallbackResult.ok) return withQuotaExhaustionClassification(compatFallbackResult, false);
       recordComboRequest(combo.name, null, {
         success: true,
         latencyMs: Date.now() - startTime,
@@ -1506,7 +1505,7 @@ export async function handleRoundRobinCombo({
       // availability result: answer 429 with a terminal quota code so the
       // caller (and any protected parent combo) reads this as quota exhaustion,
       // not a generic outage. Mixed or non-quota skips keep the legacy 503.
-      if (filteredTargets.length > 0 && quotaExhaustedSkips >= filteredTargets.length) {
+      if (allTargetsOutOfQuota()) {
         return errorResponseWithComboDiagnostics(
           429,
           quotaSkip
@@ -1560,11 +1559,14 @@ export async function handleRoundRobinCombo({
   if (earliestRetryAfter && isRetryAfterEligibleStatus(status)) {
     const retryHuman = formatRetryAfter(toRetryAfterDisplayValue(earliestRetryAfter));
     log.warn("COMBO-RR", `All models failed | ${msg} (${retryHuman})`);
-    return unavailableResponse(status, msg, earliestRetryAfter, retryHuman);
+    return withQuotaExhaustionClassification(
+      unavailableResponse(status, msg, earliestRetryAfter, retryHuman), allTargetsOutOfQuota()
+    );
   }
 
   log.warn("COMBO-RR", `All models failed | ${msg}`);
-  return errorResponse(status, msg, {
-    code: resolveComboTerminalCode(rrOutcomes, status),
-  });
+  return withQuotaExhaustionClassification(
+    errorResponse(status, msg, { code: resolveComboTerminalCode(rrOutcomes, status) }),
+    allTargetsOutOfQuota()
+  );
 }
